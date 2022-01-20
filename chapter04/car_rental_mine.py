@@ -6,7 +6,6 @@
 # 5. policy improvement. 对于某个state，如果新的policy下的某个action state value 不低于当前的state value，我们就用这个policy替换当前的policy，遍历完所有的state之后，
 # 对新的policy进行evaluate，直到没有新的policy不再发生变化，我们就认为达到了policy stable。
 import datetime as dt
-
 import numpy as np
 from scipy.stats import poisson
 
@@ -15,6 +14,21 @@ def cartesian_prod(row_arr1, col_arr2):
     row_locs = np.repeat(row_arr1, len(col_arr2))
     col_locs = np.tile(col_arr2, len(row_arr1))
     return row_locs, col_locs
+
+
+def expected_return(a_car_num, action, b_car_num):
+    car_move_cost = cost_moving_per_car * abs(action)
+    a_valid_rental_num = np.minimum(a_car_num - action, a_rental_num)
+    a_car_loc = np.minimum(a_car_num - a_valid_rental_num + a_return_lambda - action, max_car_per_loc)
+    a_state = np.repeat(a_car_loc, 11)
+    b_valid_rental_num = np.minimum(b_car_num + action, b_rental_num)
+    ab_rental_sum = a_valid_rental_num[:, np.newaxis] + b_valid_rental_num
+    ab_rental_profit = ab_rental_sum * profit_per_car
+    b_car_loc = np.minimum(b_car_num - b_valid_rental_num + b_return_lambda + action, max_car_per_loc)
+    b_state = np.tile(b_car_loc, 11)
+    seq_state_value = state_values[a_state, b_state].reshape(-1, 11)
+    expect_ret = np.sum(ab_rental_prob_matrix * (ab_rental_profit + discount_rate * seq_state_value)) - car_move_cost
+    return expect_ret
 
 
 def policy_eval(policy):
@@ -27,24 +41,13 @@ def policy_eval(policy):
                 # 在场给定state的前提下，计算100种场景的期望收益即为当下state 的value，期望收益包含租车回报，每台10。以及后续state的value折现。
                 action = policy[a_car_num, b_car_num]
                 # state为当天结束时的车辆，在晚上挪车，那么对应白天的可用车辆要去掉移走的车辆
-                a_valid_rental_num = np.minimum(a_car_num - action, a_rental_num)
-                a_car_loc = np.minimum(a_car_num - a_valid_rental_num + a_return_lambda - action, max_car_per_loc)
-                a_state = np.repeat(a_car_loc, 11)
-                car_move_cost = cost_moving_per_car * abs(action)
-                b_valid_rental_num = np.minimum(b_car_num + action, b_rental_num)
-                ab_rental_sum = a_valid_rental_num[:, np.newaxis] + b_valid_rental_num
-                ab_rental_profit = ab_rental_sum * profit_per_car
-                b_car_loc = np.minimum(b_car_num - b_valid_rental_num + b_return_lambda + action, max_car_per_loc)
-                b_state = np.tile(b_car_loc, 11)
-                seq_state_value = state_values[a_state, b_state].reshape(-1, 11)
-                state_values[a_car_num, b_car_num] = np.sum(
-                    ab_rental_prob_matrix * (ab_rental_profit + discount_rate * seq_state_value)) - car_move_cost
+                state_values[a_car_num, b_car_num] = expected_return(a_car_num, action, b_car_num)
         diff = abs(state_values - old).max()
         # iterations += 1
         # print(iterations)
 
 
-def policy_impovement(actions, state_values):
+def policy_impovement(actions):
     stable = True
     for a_car_num in range(max_car_per_loc + 1):
         for b_car_num in range(max_car_per_loc + 1):
@@ -52,18 +55,7 @@ def policy_impovement(actions, state_values):
             action_values = []
             for action in actions:
                 if (0 <= action <= a_car_num) or (-b_car_num <= action <= 0):
-                    car_move_cost = cost_moving_per_car * abs(action)
-                    a_valid_rental_num = np.minimum(a_car_num - action, a_rental_num)
-                    a_car_loc = np.minimum(a_car_num - a_valid_rental_num + a_return_lambda - action, max_car_per_loc)
-                    a_state = np.repeat(a_car_loc, 11)
-                    b_valid_rental_num = np.minimum(b_car_num + action, b_rental_num)
-                    ab_rental_sum = a_valid_rental_num[:, np.newaxis] + b_valid_rental_num
-                    ab_rental_profit = ab_rental_sum * profit_per_car
-                    b_car_loc = np.minimum(b_car_num - b_valid_rental_num + b_return_lambda + action, max_car_per_loc)
-                    b_state = np.tile(b_car_loc, 11)
-                    seq_state_value = state_values[a_state, b_state].reshape(-1, 11)
-                    action_value = np.sum(
-                        ab_rental_prob_matrix * (ab_rental_profit + discount_rate * seq_state_value)) - car_move_cost
+                    action_value = expected_return(a_car_num,action, b_car_num)
                 else:
                     action_value = -np.inf
                 action_values.append(action_value)
@@ -108,7 +100,7 @@ if __name__ == '__main__':
     iterations = 0
     while True:
         policy_eval(policy)
-        stable = policy_impovement(actions, state_values)
+        stable = policy_impovement(actions)
         iterations += 1
         print('iterations:', iterations)
         if stable:
