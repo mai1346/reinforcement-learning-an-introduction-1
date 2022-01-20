@@ -16,7 +16,7 @@ def cartesian_prod(row_arr1, col_arr2):
     return row_locs, col_locs
 
 
-def expected_return(a_car_num, action, b_car_num):
+def expected_return(a_car_num, action, b_car_num, state_values):
     car_move_cost = cost_moving_per_car * abs(action)
     a_valid_rental_num = np.minimum(a_car_num - action, a_rental_num)
     a_car_loc = np.minimum(a_car_num - a_valid_rental_num + a_return_lambda - action, max_car_per_loc)
@@ -31,7 +31,7 @@ def expected_return(a_car_num, action, b_car_num):
     return expect_ret
 
 
-def policy_eval(policy):
+def policy_eval(policy, state_values):
     diff = 10
     # iterations = 0
     while diff > 1e-4:
@@ -41,13 +41,13 @@ def policy_eval(policy):
                 # 在场给定state的前提下，计算100种场景的期望收益即为当下state 的value，期望收益包含租车回报，每台10。以及后续state的value折现。
                 action = policy[a_car_num, b_car_num]
                 # state为当天结束时的车辆，在晚上挪车，那么对应白天的可用车辆要去掉移走的车辆
-                state_values[a_car_num, b_car_num] = expected_return(a_car_num, action, b_car_num)
+                state_values[a_car_num, b_car_num] = expected_return(a_car_num, action, b_car_num, state_values)
         diff = abs(state_values - old).max()
         # iterations += 1
         # print(iterations)
 
 
-def policy_impovement(actions):
+def policy_impovement(actions, policy, state_values):
     stable = True
     for a_car_num in range(max_car_per_loc + 1):
         for b_car_num in range(max_car_per_loc + 1):
@@ -55,7 +55,7 @@ def policy_impovement(actions):
             action_values = []
             for action in actions:
                 if (0 <= action <= a_car_num) or (-b_car_num <= action <= 0):
-                    action_value = expected_return(a_car_num,action, b_car_num)
+                    action_value = expected_return(a_car_num,action, b_car_num, state_values)
                 else:
                     action_value = -np.inf
                 action_values.append(action_value)
@@ -99,8 +99,8 @@ if __name__ == '__main__':
     policy = np.zeros_like(state_values, dtype='int')
     iterations = 0
     while True:
-        policy_eval(policy)
-        stable = policy_impovement(actions)
+        policy_eval(policy, state_values)
+        stable = policy_impovement(actions, policy, state_values)
         iterations += 1
         print('iterations:', iterations)
         if stable:
