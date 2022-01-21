@@ -17,17 +17,23 @@ def cartesian_prod(row_arr1, col_arr2):
 
 
 def expected_return(a_car_num, action, b_car_num, state_values):
-    car_move_cost = cost_moving_per_car * abs(action)
-    a_valid_rental_num = np.minimum(a_car_num - action, a_rental_num)
-    a_car_loc = np.minimum(a_car_num - a_valid_rental_num + a_return_lambda - action, max_car_per_loc)
+    if action > 0:
+        car_move_cost = cost_moving_per_car * abs(action-1)
+    else:
+        car_move_cost = cost_moving_per_car * abs(action)
+    a_car_num_for_rent = a_car_num - action
+    b_car_num_for_rent = b_car_num + action
+    extra_parking_cost = 4 * (a_car_num_for_rent > 10 + b_car_num_for_rent > 10)
+    a_valid_rental_num = np.minimum(a_car_num_for_rent, a_rental_num)
+    a_car_loc = np.minimum(a_car_num_for_rent - a_valid_rental_num + a_return_lambda, max_car_per_loc)
     a_state = np.repeat(a_car_loc, 11)
-    b_valid_rental_num = np.minimum(b_car_num + action, b_rental_num)
+    b_valid_rental_num = np.minimum(b_car_num_for_rent, b_rental_num)
     ab_rental_sum = a_valid_rental_num[:, np.newaxis] + b_valid_rental_num
     ab_rental_profit = ab_rental_sum * profit_per_car
-    b_car_loc = np.minimum(b_car_num - b_valid_rental_num + b_return_lambda + action, max_car_per_loc)
+    b_car_loc = np.minimum(b_car_num_for_rent - b_valid_rental_num + b_return_lambda, max_car_per_loc)
     b_state = np.tile(b_car_loc, 11)
     seq_state_value = state_values[a_state, b_state].reshape(-1, 11)
-    expect_ret = np.sum(ab_rental_prob_matrix * (ab_rental_profit + discount_rate * seq_state_value)) - car_move_cost
+    expect_ret = np.sum(ab_rental_prob_matrix * (ab_rental_profit + discount_rate * seq_state_value)) - car_move_cost - extra_parking_cost
     return expect_ret
 
 
@@ -67,6 +73,30 @@ def policy_impovement(actions, policy, state_values):
     return stable
 
 
+def value_iteration(actions, policy, state_values):
+    diff = 10
+    iterations = 0
+    while diff > 1e-4:
+        old = state_values.copy()
+        for a_car_num in range(max_car_per_loc + 1):
+            for b_car_num in range(max_car_per_loc + 1):
+                action_values = []
+                for action in actions:
+                    if (0 <= action <= a_car_num) or (-b_car_num <= action <= 0):
+                        action_value = expected_return(a_car_num, action, b_car_num, state_values)
+                    else:
+                        action_value = -np.inf
+                    action_values.append(action_value)
+                action_idx = np.argmax(action_values)
+                new_action = actions[action_idx]
+                state_value = action_values[action_idx]
+                policy[a_car_num, b_car_num] = new_action
+                state_values[a_car_num, b_car_num] = state_value
+        diff = abs(state_values - old).max()
+        iterations += 1
+        # print('iteration:', iterations)
+
+
 if __name__ == '__main__':
     start = dt.datetime.now()
     profit_per_car = 10
@@ -97,12 +127,13 @@ if __name__ == '__main__':
     ab_rental_prob_matrix = a_rental_probs[:, np.newaxis] * b_rental_probs
 
     policy = np.zeros_like(state_values, dtype='int')
-    iterations = 0
-    while True:
-        policy_eval(policy, state_values)
-        stable = policy_impovement(actions, policy, state_values)
-        iterations += 1
-        print('iterations:', iterations)
-        if stable:
-            break
+    # iterations = 0
+    # while True:
+    #     policy_eval(policy, state_values)
+    #     stable = policy_impovement(actions, policy, state_values)
+    #     iterations += 1
+    #     print('iterations:', iterations)
+    #     if stable:
+    #         break
+    value_iteration(actions,policy, state_values)
     print(dt.datetime.now() - start)
