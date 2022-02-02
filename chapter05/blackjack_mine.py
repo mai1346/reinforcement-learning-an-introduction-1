@@ -1,11 +1,10 @@
 # dealer: <17 hit, >=17 stick
 # player: <20 hit, >=20 stick
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 from tqdm import trange
-
 
 np.random.seed(5)
 
@@ -28,8 +27,8 @@ def stick_above(player_sum, dealer_show, usable, state_values, state_counts):
     return 0
 
 
-def uniform_random():
-    temp = np.full(21, fill_value=0.5)
+def pure_random(player_sum, dealer_show, usable, state_values, state_counts):
+    temp = np.random.randint(0, 2)
     return temp
 
 
@@ -38,19 +37,26 @@ def greedy(player_sum, dealer_show, usable, state_values, state_counts):
     dealer_show -= 11 if dealer_show == 11 else 1
     action_values = state_values[player_sum, dealer_show, usable, :] / state_counts[player_sum, dealer_show, usable, :]
     # action = np.argmax(action_values)
-    action = np.random.choice(np.where(action_values==np.max(action_values))[0])
+    action = np.random.choice(np.where(action_values == np.max(action_values))[0])
     return action
 
 
-def initialize(random=True):
-    if random:
+def initialize(method='random'):
+    if method == 'random':
         dealer_usable = 0
-        player_sum = np.random.randint(12,22)
-        dealer_show = np.random.randint(2,12)
-        usable = np.random.randint(0,2)
-        dealer_usable += dealer_show==11
-        dealer_sum = dealer_show + np.random.randint(2,12)
-        dealer_usable += dealer_sum==22
+        player_sum = np.random.randint(12, 22)
+        dealer_show = np.random.randint(2, 12)
+        usable = np.random.randint(0, 2)
+        dealer_usable += dealer_show == 11
+        dealer_sum = dealer_show + np.random.randint(2, 12)
+        dealer_usable += dealer_sum == 22
+    elif method == 'fixed_state':
+        player_sum = 13
+        usable = 1
+        dealer_show = 2
+        dealer_usable = 0
+        dealer_sum = dealer_show + np.random.randint(2, 12)
+        dealer_usable += dealer_sum == 22
     else:
         player_sum = 0
         dealer_sum = 0
@@ -77,11 +83,25 @@ def initialize(random=True):
 
 def single_episode(player_s, dealer_sum, dealer_show, usable, dealer_usable, state_values, state_counts,
                    policy=stick_above, random_initial_action=False):
+    """
+
+    @param player_s:
+    @param dealer_sum:
+    @param dealer_show:
+    @param usable:
+    @param dealer_usable:
+    @param state_values:
+    @param state_counts:
+    @param policy:
+    @param random_initial_action:
+    @return:
+    """
     intermediate_player_s = []
     intermediate_dealer_s = []
     intermediate_player_usable = []
     intermediate_action = []
-    hit = np.random.randint(0,2) if random_initial_action else policy(player_s, dealer_show, usable, state_values, state_counts)
+    hit = np.random.randint(0, 2) if random_initial_action else policy(player_s, dealer_show, usable, state_values,
+                                                                       state_counts)
     # player move
     while hit:
         intermediate_player_s.append(player_s)
@@ -152,7 +172,8 @@ def monte_carlo_es(num_eps, exploring_starts=False):
         policy = greedy if i else stick_above
         reward, inter_player_s, inter_dealer_s, usable, action = single_episode(player_sum, dealer_sum, dealer_show,
                                                                                 usable, dealer_usable, state_values,
-                                                                                state_counts, policy=policy, random_initial_action=True)
+                                                                                state_counts, policy=policy,
+                                                                                random_initial_action=True)
         player_idx_arr = np.array(inter_player_s) - 12
         dealer_idx_arr = np.array(inter_dealer_s)
         dealer_idx_arr[dealer_idx_arr == 11] = 1  # 让11 重置为1
@@ -162,15 +183,52 @@ def monte_carlo_es(num_eps, exploring_starts=False):
     return state_values / state_counts
 
 
-if __name__ == '__main__':
-    player_state = np.arange(12, 21 + 1)
-    dealer_state = np.arange(1, 10 + 1)
+def monte_carlo_off_policy(episode_num):
+    """
+    实现off policy的蒙特卡洛模拟，weighted_average控制importance sampling 的方式，
+    True: weighted_averaged sampling; False: ordinary sampling
+    针对一个固定的state：
+    dealer_show: 2
+    player_sum: 13
+    usable: 1
+    behavior_policy: pure_random
+    target_policy: stick_above(20)
+    @return:
+    """
+    state_value = np.zeros(episode_num)
+    sample_importance_sum = np.zeros(episode_num)
+    for i in range(episode_num):
+        player_sum, dealer_sum, dealer_show, usable, dealer_usable = initialize('fixed_state')
+        reward, player_sums, dealer_shows, usable, actions = single_episode(player_sum, dealer_sum, dealer_show, usable,
+                                                                            dealer_usable, state_values=None,
+                                                                            state_counts=None, policy=pure_random)
+        target_action_prob = 1
+        episode_action_prob = 1
+        for action in actions:
+            if stick_above(player_sum, dealer_show, usable, state_value, state_counts=None) == action:
+                episode_action_prob *= 0.5
+            else:
+                target_action_prob = 0
+        sample_importance_ratio = target_action_prob / episode_action_prob
+        reward *= sample_importance_ratio
+        state_value[i] = reward
+        sample_importance_sum[i] = sample_importance_ratio
+
+    ordinary_sampling = state_value / np.arange(1, episode_num + 1)
+    rhos = sample_importance_sum.cumsum()
+    with np.errstate(divide='ignore',invalid='ignore'):
+        weighted_average_sampling = np.where(rhos != 0, state_value / rhos, 0)
+    # weighted_average_sampling = state_value / sample_importance_sum.cumsum()
+    return ordinary_sampling, weighted_average_sampling
+
+
+def plot_5_2():
     test = monte_carlo_es(500000, exploring_starts=True)
     state_value_no_usable_ace = np.max(test[:, :, 0, :], axis=2)
     state_value_usable_ace = np.max(test[:, :, 1, :], axis=2)
 
-    action_no_usable_ace = 1-np.argmax(test[:, :, 0, :], axis=2)
-    action_usable_ace = 1-np.argmax(test[:, :, 1, :], axis=2)
+    action_no_usable_ace = 1 - np.argmax(test[:, :, 0, :], axis=2)
+    action_usable_ace = 1 - np.argmax(test[:, :, 1, :], axis=2)
     # sns.heatmap(state_values)
     images = [action_usable_ace,
               state_value_usable_ace,
@@ -195,3 +253,36 @@ if __name__ == '__main__':
     plt.show()
     # plt.savefig('../images/figure_5_2.png')
     plt.close()
+
+
+def figure_5_3():
+    true_value = -0.27726
+    runs = 100
+    episodes = 10000
+    error_ordinary = np.zeros(episodes)
+    error_weighted = np.zeros(episodes)
+    for i in trange(runs):
+        ordinary_sampling_, weighted_sampling_ = monte_carlo_off_policy(episodes)
+        # get the squared error
+        error_ordinary += np.power(ordinary_sampling_ - true_value, 2)
+        error_weighted += np.power(weighted_sampling_ - true_value, 2)
+    error_ordinary /= runs
+    error_weighted /= runs
+
+    plt.plot(np.arange(1, episodes + 1), error_ordinary, color='green', label='Ordinary Importance Sampling')
+    plt.plot(np.arange(1, episodes + 1), error_weighted, color='red', label='Weighted Importance Sampling')
+    plt.ylim(-0.1, 5)
+    plt.xlabel('Episodes (log scale)')
+    plt.ylabel(f'Mean square error\n(average over {runs} runs)')
+    plt.xscale('log')
+    plt.legend()
+    plt.show()
+    # plt.savefig('../images/figure_5_3.png')
+    plt.close()
+    return error_ordinary, error_weighted
+
+
+if __name__ == '__main__':
+    player_state = np.arange(12, 21 + 1)
+    dealer_state = np.arange(1, 10 + 1)
+    o, w = figure_5_3()
