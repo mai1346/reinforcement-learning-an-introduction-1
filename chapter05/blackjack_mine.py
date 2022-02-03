@@ -6,7 +6,7 @@ import numpy as np
 import seaborn as sns
 from tqdm import trange
 
-np.random.seed(5)
+# np.random.seed(5)
 
 
 def get_a_card():
@@ -30,6 +30,12 @@ def stick_above(player_sum, dealer_show, usable, state_values, state_counts):
 def pure_random(player_sum, dealer_show, usable, state_values, state_counts):
     temp = np.random.randint(0, 2)
     return temp
+
+
+def pure_random2(player_sum, dealer_show, usable, state_values, state_counts):
+    if np.random.binomial(1, 0.5) == 1:
+        return 0
+    return 1
 
 
 def greedy(player_sum, dealer_show, usable, state_values, state_counts):
@@ -204,16 +210,17 @@ def monte_carlo_off_policy(episode_num):
                                                                             state_counts=None, policy=pure_random)
         target_action_prob = 1
         episode_action_prob = 1
-        for action in actions:
-            if stick_above(player_sum, dealer_show, usable, state_value, state_counts=None) == action:
+        for action, player_s in zip(actions, player_sums):
+            if stick_above(player_s, dealer_show, usable, state_value, state_counts=None) == action:
                 episode_action_prob *= 0.5
             else:
                 target_action_prob = 0
+                break
         sample_importance_ratio = target_action_prob / episode_action_prob
         reward *= sample_importance_ratio
         state_value[i] = reward
         sample_importance_sum[i] = sample_importance_ratio
-
+    state_value = state_value.cumsum()
     ordinary_sampling = state_value / np.arange(1, episode_num + 1)
     rhos = sample_importance_sum.cumsum()
     with np.errstate(divide='ignore',invalid='ignore'):
